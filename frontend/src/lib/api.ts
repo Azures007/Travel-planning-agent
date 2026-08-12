@@ -19,6 +19,7 @@ export async function listSessions(): Promise<SessionInfo[]> {
 export interface SessionDetail {
   id: number
   title: string
+  pending_question: string | null
   messages: {
     id: number
     role: 'user' | 'assistant'
@@ -36,6 +37,11 @@ export type SSEEvent =
   | { type: 'agent_message'; data: { text: string } }
   | { type: 'tool_result'; data: { name: string; result: unknown } }
   | { type: 'itinerary'; data: { plan: ItineraryPlan } }
+  | { type: 'question'; data: { question: string; waiting: boolean } }
+  | {
+      type: 'validation_report'
+      data: { warnings: { rule: string; level: string; message: string }[] }
+    }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: Record<string, never> }
 

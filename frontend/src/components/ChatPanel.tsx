@@ -3,17 +3,24 @@ import { useEffect, useRef, useState } from 'react'
 interface ChatPanelProps {
   messages: { role: 'user' | 'assistant'; content: string }[]
   loading: boolean
+  waitingFor?: string | null
   onSend: (text: string) => void
   disabled: boolean
 }
 
-export default function ChatPanel({ messages, loading, onSend, disabled }: ChatPanelProps) {
+export default function ChatPanel({
+  messages,
+  loading,
+  waitingFor = null,
+  onSend,
+  disabled,
+}: ChatPanelProps) {
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages, loading, waitingFor])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,8 +30,18 @@ export default function ChatPanel({ messages, loading, onSend, disabled }: ChatP
     setInput('')
   }
 
+  const isWaiting = waitingFor !== null && !loading
+  const inputDisabled = disabled || loading
+
   return (
     <div className="flex w-[46%] min-w-[380px] flex-col border-r border-gray-200">
+      {/* 等待回答横幅 */}
+      {isWaiting && (
+        <div className="mx-3 mt-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-sm text-amber-700">
+          ⏳ 等你回答：{waitingFor}
+        </div>
+      )}
+
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
@@ -76,13 +93,21 @@ export default function ChatPanel({ messages, loading, onSend, disabled }: ChatP
               }
             }}
             rows={1}
-            placeholder={disabled ? '先新建一个会话' : '输入你的旅行需求…'}
-            disabled={disabled || loading}
+            placeholder={
+              inputDisabled
+                ? disabled
+                  ? '先新建一个会话'
+                  : '思考中…'
+                : isWaiting
+                  ? '回答…'
+                  : '输入你的旅行需求…'
+            }
+            disabled={inputDisabled}
             className="flex-1 resize-none rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-100"
           />
           <button
             type="submit"
-            disabled={disabled || loading || !input.trim()}
+            disabled={inputDisabled || !input.trim()}
             className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             发送

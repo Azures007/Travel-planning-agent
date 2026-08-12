@@ -1,11 +1,10 @@
-"""Agent 工具注册表：把 Python 函数暴露给 LLM 调用。
+"""Agent 工具注册表：把工具暴露给 LLM 调用。
 
-P1 使用 Mock 实现；P2 切换到真实 API 时只需替换函数内部实现，
-工具名/参数/返回值保持兼容即可。
+P1 使用 Mock 实现；P2 通过 registry 按 Key 选择真实 API 并自动降级。
+工具名/参数/返回值保持兼容。
 """
 
 from app.schemas import ItineraryPlan
-from app.tools.mock_tools import calc_transit, get_weather, search_poi
 
 # 工具定义（OpenAI 兼容格式，DashScope 支持）
 TOOL_DEFS = [
@@ -56,28 +55,6 @@ TOOL_DEFS = [
         },
     },
 ]
-
-# 工具名 -> 处理函数
-_TOOL_HANDLERS = {
-    "search_poi": search_poi,
-    "get_weather": get_weather,
-    "calc_transit": calc_transit,
-}
-
-# 供 agent 逻辑引用的工具描述（含 ItineraryPlan schema 信息）
-AGENT_TOOL_NAMES = [t["function"]["name"] for t in TOOL_DEFS]
-
-
-def call_tool(name: str, arguments: dict):
-    """执行工具调用，返回结果 dict 或错误信息。"""
-    handler = _TOOL_HANDLERS.get(name)
-    if handler is None:
-        return {"error": f"未知工具: {name}"}
-    try:
-        result = handler(**arguments)
-    except TypeError as e:
-        return {"error": f"工具参数错误: {e}"}
-    return result
 
 
 def itinerary_tool_def() -> dict:

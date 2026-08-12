@@ -1,3 +1,12 @@
+"""FastAPI 主应用。"""
+
+import asyncio
+import sys
+
+# Windows: psycopg 3 async 需要 selector 事件循环（必须在事件循环创建前设置）
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI

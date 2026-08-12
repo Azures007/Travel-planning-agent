@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
 
+    # 真实数据 API（P2，Key 留空自动降级 Mock）
+    amap_key: str = ""
+    qweather_key: str = ""
+    force_mock_tools: bool = False
+
     cors_origins: str = "http://localhost:5173"
 
     @property

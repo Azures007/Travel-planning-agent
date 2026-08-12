@@ -116,5 +116,5 @@ def calc_transit(origin: str, destination: str, mode: str = "driving") -> dict:
         "to": destination,
         "distance_km": _dist_km,
         "duration_min": _duration_min,
-        "suggestion": f"{mode}约{duration_min}分钟",
+        "suggestion": f"{mode}约{_duration_min}分钟",
     }

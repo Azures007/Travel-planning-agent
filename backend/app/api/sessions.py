@@ -49,9 +49,15 @@ async def get_session(session_id: int, db: AsyncSession = Depends(get_db)):
     )
     latest_itinerary = itin_result.scalars().first()
 
+    # 读取 checkpointer 中是否有待回答的问题（前端恢复等待状态）
+    from app.agent.runner import AgentRunner
+
+    pending_question = await AgentRunner.get_pending_question(session_id)
+
     return {
         "id": session.id,
         "title": session.title,
+        "pending_question": pending_question,
         "messages": [
             {
                 "id": m.id,

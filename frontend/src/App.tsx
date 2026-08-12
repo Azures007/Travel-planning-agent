@@ -13,6 +13,7 @@ export default function App() {
     { role: 'user' | 'assistant'; content: string }[]
   >([])
   const [loading, setLoading] = useState(false)
+  const [waitingFor, setWaitingFor] = useState<string | null>(null)
   const itineraryRef = useRef<ItineraryPlan | null>(null)
 
   const refreshSessions = useCallback(async () => {
@@ -39,6 +40,7 @@ export default function App() {
       setActiveSession(s.id)
       setMessages([])
       setItinerary(null)
+      setWaitingFor(null)
     } catch (e) {
       console.error('创建会话失败', e)
     }
@@ -53,6 +55,8 @@ export default function App() {
           detail.messages.map((m) => ({ role: m.role, content: m.content })),
         )
         setItinerary(detail.itinerary)
+        // 恢复中断等待状态
+        setWaitingFor(detail.pending_question || null)
       } catch (e) {
         console.error('加载会话失败', e)
       }
@@ -69,6 +73,7 @@ export default function App() {
       const userMsg = { role: 'user' as const, content: text }
       setMessages((prev) => [...prev, userMsg])
       setLoading(true)
+      setWaitingFor(null)
 
       const assistantBuffer = { text: '' }
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
@@ -87,6 +92,11 @@ export default function App() {
             })
           } else if (event.type === 'itinerary') {
             setItinerary(event.data.plan)
+          } else if (event.type === 'question') {
+            setWaitingFor(event.data.question)
+          } else if (event.type === 'validation_report') {
+            // 协议先行：校验警告暂只打日志，后续可渲染
+            console.info('行程校验警告:', event.data.warnings)
           }
         })
       } catch (e) {
@@ -119,6 +129,7 @@ export default function App() {
         <ChatPanel
           messages={messages}
           loading={loading}
+          waitingFor={waitingFor}
           onSend={handleSend}
           disabled={activeSession === null}
         />
