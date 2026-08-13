@@ -76,9 +76,9 @@ class AgentRunner:
                 if _mode == "custom":
                     yield self._map_custom(chunk)
         except Exception as e:
-            # 递归超限或执行错误
+            # 执行错误：分类成友好提示，避免把原始堆栈抛给用户
             logger.error("Agent 执行出错: %s", e)
-            yield AgentEvent("error", {"message": f"Agent 执行出错: {e}"})
+            yield AgentEvent("error", {"message": self._friendly_error(e)})
             yield AgentEvent("done", {})
             return
 
@@ -117,6 +117,31 @@ class AgentRunner:
         """把 custom 流事件映射为 AgentEvent。"""
         kind = chunk.get("type", "")
         return AgentEvent(kind, chunk.get("data", {}))
+
+    @staticmethod
+    def _friendly_error(e: Exception) -> str:
+        """把异常分类为对用户友好的提示，避免暴露原始堆栈。
+
+        识别常见错误：上下文超窗 / 递归超限 / 未知工具等。
+        """
+        msg = str(e)
+        msg_lower = msg.lower()
+
+        # 1. 上下文超窗（qwen 上下文窗口限制）
+        if any(k in msg_lower for k in ("maximum context length", "context length", "too many tokens", "token limit", "tokens exceed")):
+            return "对话内容已经太长了，超出了模型能处理的长度。建议新开一个会话继续规划（历史会自动保留）。"
+
+        # 2. 图递归超限（LangGraph recursion_limit）
+        if "recursion" in msg_lower or "RecursionError" in type(e).__name__:
+            return "这个请求的处理步骤太多了，请把需求简化一些再试。"
+
+        # 3. API 密钥/鉴权错误
+        if any(k in msg_lower for k in ("401", "authentication", "invalid api key", "unauthorized")):
+            return "模型服务认证失败，请检查后端的 DASHSCOPE_API_KEY 配置。"
+
+        # 4. 其他：截断到 200 字符，去掉多余细节
+        brief = msg.replace("\n", " ")[:200]
+        return f"处理时出了问题：{brief}… 请重试，或换一种说法。"
 
     @staticmethod
     async def _load_history(db: AsyncSession, session_id: int) -> list[dict]:

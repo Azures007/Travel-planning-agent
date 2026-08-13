@@ -94,6 +94,17 @@ export default function App() {
             setItinerary(event.data.plan)
           } else if (event.type === 'question') {
             setWaitingFor(event.data.question)
+          } else if (event.type === 'error') {
+            // 后端友好错误提示：填充到当前 assistant 气泡
+            assistantBuffer.text = event.data.message
+            setMessages((prev) => {
+              const next = [...prev]
+              next[next.length - 1] = {
+                role: 'assistant',
+                content: event.data.message,
+              }
+              return next
+            })
           } else if (event.type === 'validation_report') {
             // 协议先行：校验警告暂只打日志，后续可渲染
             console.info('行程校验警告:', event.data.warnings)

@@ -45,7 +45,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
             async for ev in runner.run(db, req.session_id, req.content):
                 yield _sse({"type": ev.kind, "data": ev.data})
         except Exception as e:
-            yield _sse({"type": "error", "data": {"message": f"Agent 执行出错: {e}"}})
+            yield _sse({"type": "error", "data": {"message": AgentRunner._friendly_error(e)}})
             yield _sse({"type": "done", "data": {}})
 
     return StreamingResponse(
