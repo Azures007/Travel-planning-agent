@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     qweather_key: str = ""
     force_mock_tools: bool = False
 
+    # 上下文压缩（方案3）：估算 token 超过阈值时，把旧对话压缩成摘要
+    context_compress_threshold: int = 24000  # 估算 token，超过触发压缩
+    context_keep_recent: int = 12            # 压缩时保留最近 N 条消息
+
     cors_origins: str = "http://localhost:5173"
 
     @property

@@ -2,13 +2,21 @@
 
 在 LangGraph 节点内调用，通过 get_stream_writer 把文本增量透传为
 custom 事件（runner 消费后转发为 SSE 的 agent_message / tool_result）。
+
+方案3：发送给 API 前先做上下文压缩（旧对话 → 摘要），State/DB 不受影响。
 """
 
 import json
+import logging
 from dataclasses import dataclass, field
 
 from langgraph.config import get_stream_writer
 from openai import AsyncOpenAI
+
+from app.agent.prompts import SYSTEM_SUMMARY
+from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,6 +29,94 @@ class LLM:
     def __init__(self, api_key: str, base_url: str, model: str):
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        # 摘要缓存：key=被压缩消息的指纹，value=摘要文本，避免重复压缩
+        self._summary_cache: dict[str, str] = {}
+
+    # ---- 上下文压缩（方案3）----
+
+    @staticmethod
+    def _estimate_tokens(messages: list[dict]) -> int:
+        """粗略估算 token 数（无 tokenizer，用字符数近似）。"""
+        total = 0
+        for m in messages:
+            content = m.get("content") or ""
+            # 中文约 1 字 ≈ 1 token，英文约 4 字符 ≈ 1 token，折中取 0.7
+            total += int(len(content) * 0.7)
+            if m.get("tool_calls"):
+                total += 50  # 工具调用结构开销
+        return total
+
+    @staticmethod
+    def _fingerprint(messages: list[dict]) -> str:
+        """计算消息列表指纹（用于摘要缓存）。"""
+        parts = []
+        for m in messages:
+            c = (m.get("content") or "")[:200]
+            parts.append(f"{m.get('role')}:{len(c)}:{c}")
+        return "|".join(parts)[-2000:]
+
+    async def _summarize(self, old_messages: list[dict]) -> str:
+        """用一次非流式调用把旧对话压缩成摘要。失败返回空串（调用方兜底不压缩）。"""
+        fp = self._fingerprint(old_messages)
+        if fp in self._summary_cache:
+            return self._summary_cache[fp]
+
+        # 把旧消息转成可读文本
+        lines = []
+        for m in old_messages:
+            role = m.get("role", "")
+            content = m.get("content") or ""
+            if m.get("tool_calls"):
+                lines.append(f"[assistant 调用了工具]")
+            elif role == "tool":
+                lines.append(f"[工具结果] {content[:200]}")
+            else:
+                lines.append(f"{role}: {content}")
+        dialog_text = "\n".join(lines)
+
+        try:
+            resp = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_SUMMARY},
+                    {"role": "user", "content": f"对话历史：\n{dialog_text[:8000]}"},
+                ],
+                max_tokens=500,
+                stream=False,
+            )
+            summary = (resp.choices[0].message.content or "").strip()
+            if summary:
+                self._summary_cache[fp] = summary
+            return summary
+        except Exception as e:
+            logger.warning("上下文摘要生成失败: %s（本次不压缩）", e)
+            return ""
+
+    async def _compress_if_needed(self, messages: list[dict]) -> list[dict]:
+        """超过阈值时，把除最近 N 条外的旧消息压缩成摘要，插在开头。"""
+        threshold = settings.context_compress_threshold
+        keep_recent = settings.context_keep_recent
+
+        if self._estimate_tokens(messages) <= threshold:
+            return messages
+
+        # 保留最近的 keep_recent 条，压缩更早的
+        keep = messages[-keep_recent:]
+        old = messages[:-keep_recent]
+        if len(old) < 2:
+            return messages  # 旧消息太少不值得压缩
+
+        summary = await self._summarize(old)
+        if not summary:
+            return messages  # 摘要失败，保持原样（宁可多用 token 也不丢信息）
+
+        logger.info("上下文压缩: %d 条旧消息 → 摘要 (节省约 %d token)",
+                    len(old), self._estimate_tokens(old))
+        # 摘要消息插在最前（保留 system 提示在前面）
+        summary_msg = {"role": "system", "content": f"[早前对话摘要]\n{summary}"}
+        return [summary_msg] + keep
+
+    # ---- 主调用 ----
 
     async def turn(
         self,
@@ -33,12 +129,16 @@ class LLM:
 
         文本增量通过 get_stream_writer 透传为 custom 事件；
         工具调用按 index 分槽拼装，流结束后返回完整结构。
+        发送前做上下文压缩（超阈值时）。
         """
         writer = get_stream_writer()
 
         api_messages = messages
         if system:
             api_messages = [{"role": "system", "content": system}] + list(messages)
+
+        # 方案3：上下文压缩（只在发给 API 前生效）
+        api_messages = await self._compress_if_needed(api_messages)
 
         kwargs: dict = {
             "model": self.model,

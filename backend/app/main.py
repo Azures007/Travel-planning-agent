@@ -1,11 +1,15 @@
 """FastAPI 主应用。"""
 
 import asyncio
+import logging
 import sys
 
 # Windows: psycopg 3 async 需要 selector 事件循环（必须在事件循环创建前设置）
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# 让 app 的 INFO 日志可见（如上下文压缩、校验重试等）
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 from contextlib import asynccontextmanager
 
