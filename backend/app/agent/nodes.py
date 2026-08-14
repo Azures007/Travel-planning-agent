@@ -73,10 +73,11 @@ def _extract_requirements(messages: list[dict]) -> dict:
     if m:
         req["days"] = int(m.group(1))
 
-    # 预算：XXX元 / XXX 元 / XXX块钱
-    m = re.search(r"(\d+)\s*元", text)
+    # 预算：XXX元 / XXX 元 / 预算XXX / XXX块钱
+    m = re.search(r"(\d+)\s*元|预算\s*(\d+)|(\d+)\s*块钱", text)
     if m:
-        req["budget"] = float(m.group(1))
+        budget_str = next(g for g in m.groups() if g)
+        req["budget"] = float(budget_str)
 
     # 节奏
     if "轻松" in text or "慢" in text:
@@ -86,10 +87,13 @@ def _extract_requirements(messages: list[dict]) -> dict:
     elif "适中" in text:
         req["pace"] = "适中"
 
-    # 人数
-    m = re.search(r"(\d+)\s*[个位]人", text)
+    # 人数：2个人 / 两个人 / 一家三口 / 3人
+    m = re.search(r"(\d+|[一二两三四五六七八九十]+)\s*[个位]人", text)
     if m:
-        req["travelers"] = f"{m.group(1)}人"
+        num_map = {"一": "1", "两": "2", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8", "九": "9", "十": "10"}
+        raw = m.group(1)
+        travelers = num_map.get(raw, raw)
+        req["travelers"] = f"{travelers}人"
 
     return req
 
@@ -141,8 +145,26 @@ async def collect(state: TravelState) -> dict:
         writer({"type": "agent_message", "data": {"text": result.content}})
         messages.append({"role": "assistant", "content": result.content})
 
-    requirements = _extract_requirements(messages)
+    # 跨轮累积：新抽取的需求与已有需求合并，已确认的字段不被冲掉
+    new_requirements = _extract_requirements(messages)
+    requirements = _merge_requirements(state.get("requirements"), new_requirements)
     return {"messages": messages, "requirements": requirements}
+
+
+def _merge_requirements(prev: dict | None, new: dict | None) -> dict:
+    """合并新旧需求：新值覆盖旧值，但旧值若新抽取没提取到则保留。
+
+    这样用户后续补充偏好（如「住市区，喜欢美食」）时，不会把之前
+    已确认的目的地/天数/预算冲掉。
+    """
+    merged: dict = {}
+    if prev:
+        merged.update(prev)
+    if new:
+        for k, v in new.items():
+            if v:  # 新值非空才覆盖（空值保留旧值）
+                merged[k] = v
+    return merged
 
 
 async def ask_user(state: TravelState) -> dict:
