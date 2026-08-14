@@ -20,6 +20,14 @@ export async function deleteSession(sessionId: number): Promise<void> {
   await jsonRequest<void>(`${BASE}/sessions/${sessionId}`, { method: 'DELETE' })
 }
 
+export async function renameSession(sessionId: number, title: string): Promise<SessionInfo> {
+  return jsonRequest<SessionInfo>(`${BASE}/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
 export interface SessionDetail {
   id: number
   title: string

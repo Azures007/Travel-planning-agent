@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +8,24 @@ from app.db.session import get_db
 from app.schemas import ItineraryPlan
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+class RenameRequest(BaseModel):
+    title: str
+
+
+@router.patch("/{session_id}")
+async def rename_session(session_id: int, req: RenameRequest, db: AsyncSession = Depends(get_db)):
+    """重命名会话标题。"""
+    session = await db.get(Session, session_id)
+    if session is None:
+        return {"error": "会话不存在"}
+    title = req.title.strip()
+    if not title:
+        return {"error": "标题不能为空"}
+    session.title = title[:200]
+    await db.commit()
+    return {"id": session.id, "title": session.title}
 
 
 @router.post("")

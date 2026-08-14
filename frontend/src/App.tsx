@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ChatPanel from './components/ChatPanel'
 import Timeline from './components/Timeline'
 import SessionSidebar from './components/SessionSidebar'
-import { createSession, deleteSession, getSession, listSessions, sendChatMessage } from './lib/api'
+import { createSession, deleteSession, getSession, listSessions, renameSession, sendChatMessage } from './lib/api'
 import type { ItineraryPlan, SessionInfo } from './lib/types'
 
 export default function App() {
@@ -26,10 +26,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    void refreshSessions()
-  }, [refreshSessions])
-
-  useEffect(() => {
     itineraryRef.current = itinerary
   }, [itinerary])
 
@@ -45,6 +41,12 @@ export default function App() {
       console.error('创建会话失败', e)
     }
   }, [refreshSessions])
+
+  // 进入页面自动创建一个新会话，输入框立即可用（无需先点新建）
+  useEffect(() => {
+    void newSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (activeSession === null) return
@@ -84,6 +86,18 @@ export default function App() {
         })
       } catch (e) {
         console.error('删除会话失败', e)
+      }
+    },
+    [refreshSessions],
+  )
+
+  const handleRename = useCallback(
+    async (id: number, title: string) => {
+      try {
+        await renameSession(id, title)
+        await refreshSessions()
+      } catch (e) {
+        console.error('重命名会话失败', e)
       }
     },
     [refreshSessions],
@@ -158,6 +172,7 @@ export default function App() {
         onNew={newSession}
         onSelect={openSession}
         onDelete={handleDelete}
+        onRename={handleRename}
       />
       <div className="flex flex-1 min-w-0">
         <ChatPanel
