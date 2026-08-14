@@ -15,6 +15,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [waitingFor, setWaitingFor] = useState<string | null>(null)
   const itineraryRef = useRef<ItineraryPlan | null>(null)
+  // 刚自动新建的会话：跳过 getSession 加载，避免覆盖流式更新的消息
+  const skipLoadRef = useRef<number | null>(null)
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -42,22 +44,18 @@ export default function App() {
     }
   }, [refreshSessions])
 
-  // 进入页面：有历史会话就选中最新的一个（可继续对话），没有才新建
+  // 进入页面：不选中任何历史会话（显示空输入界面），用户第一次输入时自动新建
   useEffect(() => {
-    void (async () => {
-      const list = await listSessions()
-      setSessions(list)
-      if (list.length > 0) {
-        setActiveSession(list[0].id)  // 列表按创建时间倒序，第一个即最新
-      } else {
-        await newSession()
-      }
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void refreshSessions()
+  }, [refreshSessions])
 
   useEffect(() => {
     if (activeSession === null) return
+    // 自动新建的会话：跳过加载（消息正在流式更新，避免被覆盖）
+    if (skipLoadRef.current === activeSession) {
+      skipLoadRef.current = null
+      return
+    }
     void (async () => {
       try {
         const detail = await getSession(activeSession)
@@ -113,7 +111,16 @@ export default function App() {
 
   const handleSend = useCallback(
     async (text: string) => {
-      if (!activeSession) return
+      // 无活动会话时，自动新建一个（用户第一次输入）
+      let sid = activeSession
+      if (sid === null) {
+        const s = await createSession()
+        skipLoadRef.current = s.id  // 跳过 getSession 加载，避免覆盖流式消息
+        setActiveSession(s.id)
+        sid = s.id
+      }
+      if (sid === null) return
+
       const userMsg = { role: 'user' as const, content: text }
       setMessages((prev) => [...prev, userMsg])
       setLoading(true)
@@ -123,7 +130,7 @@ export default function App() {
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
 
       try {
-        await sendChatMessage(activeSession, text, (event) => {
+        await sendChatMessage(sid, text, (event) => {
           if (event.type === 'agent_message') {
             assistantBuffer.text += event.data.text
             setMessages((prev) => {
@@ -169,7 +176,7 @@ export default function App() {
         await refreshSessions()
       }
     },
-    [activeSession, refreshSessions],
+    [activeSession, refreshSessions, createSession],
   )
 
   return (
@@ -188,7 +195,7 @@ export default function App() {
           loading={loading}
           waitingFor={waitingFor}
           onSend={handleSend}
-          disabled={activeSession === null}
+          disabled={false}
         />
         <Timeline itinerary={itinerary} />
       </div>
