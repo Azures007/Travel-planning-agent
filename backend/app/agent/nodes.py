@@ -95,6 +95,29 @@ def _extract_requirements(messages: list[dict]) -> dict:
         travelers = num_map.get(raw, raw)
         req["travelers"] = f"{travelers}人"
 
+    # 出发日期：8月15号 / 8月15日 / 15号 / 下周五
+    m = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]", text)
+    if m:
+        req["departure_date"] = f"{m.group(1)}月{m.group(2)}日"
+    else:
+        m = re.search(r"(今天|明天|后天|下周[一二三四五六日天]|下周末|这个周末)", text)
+        if m:
+            req["departure_date"] = m.group(1)
+
+    # 兴趣偏好：从关键词识别
+    pref_keywords = {
+        "美食": ["美食", "吃", "好吃", "小吃", "吃货"],
+        "自然风光": ["自然", "风景", "山水", "海边", "海滩", "森林", "爬山"],
+        "人文历史": ["历史", "古迹", "文化", "博物馆", "古镇", "人文"],
+        "摄影": ["摄影", "拍照", "出片", "拍照片"],
+        "亲子": ["亲子", "小孩", "孩子", "带娃"],
+        "购物": ["购物", "逛街", "买"],
+        "休闲度假": ["放松", "度假", "休闲", "发呆"],
+    }
+    found_prefs = [label for label, kws in pref_keywords.items() if any(k in text for k in kws)]
+    if found_prefs:
+        req["preferences"] = "、".join(found_prefs)
+
     return req
 
 
@@ -138,7 +161,11 @@ async def collect(state: TravelState) -> dict:
                 }
             )
 
-        return {"messages": messages}
+        # 工具调用轮也同步抽取需求，保证已确认字段不丢、随时可用
+        new_requirements = _extract_requirements(messages)
+        requirements = _merge_requirements(state.get("requirements"), new_requirements)
+
+        return {"messages": messages, "requirements": requirements}
 
     # 无工具调用：纯文本回复，抽取需求
     if result.content.strip():
@@ -148,7 +175,19 @@ async def collect(state: TravelState) -> dict:
     # 跨轮累积：新抽取的需求与已有需求合并，已确认的字段不被冲掉
     new_requirements = _extract_requirements(messages)
     requirements = _merge_requirements(state.get("requirements"), new_requirements)
-    return {"messages": messages, "requirements": requirements}
+
+    # 计算缺失的必问字段并设置待问问题（由 ask_user 节点消费）
+    # 注意：必须在节点内返回更新 state，路由函数不能直接改 state
+    from app.agent.graph import FIELD_QUESTIONS, missing_fields
+
+    missing = missing_fields(requirements)
+    pending_question = " ".join(FIELD_QUESTIONS[f] for f in missing) if missing else None
+
+    return {
+        "messages": messages,
+        "requirements": requirements,
+        "pending_question": pending_question,
+    }
 
 
 def _merge_requirements(prev: dict | None, new: dict | None) -> dict:
@@ -186,6 +225,10 @@ async def generate(state: TravelState) -> dict:
 
     messages = list(state.get("messages") or [])
     req = state.get("requirements") or {}
+
+    # 保险：若 requirements 为空（理论上 collect 已算好），现场从历史抽取
+    if not req:
+        req = _extract_requirements(messages)
 
     feedback = ""
     validation = state.get("validation") or {}

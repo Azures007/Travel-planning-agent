@@ -16,6 +16,25 @@ from app.agent.nodes import ask_user, collect, generate, validate
 
 MAX_VALIDATE_RETRIES = 2
 
+# 需求收集的必问字段（缺任一 → 追问）
+REQUIRED_FIELDS = ["destination", "days", "budget", "travelers", "pace", "preferences", "departure_date"]
+
+# 字段对应的提问文案
+FIELD_QUESTIONS = {
+    "destination": "想去哪个城市或目的地？",
+    "days": "打算玩几天？",
+    "budget": "大概预算是多少？",
+    "travelers": "几个人出行？",
+    "pace": "节奏偏好是轻松还是紧凑？",
+    "preferences": "有什么兴趣偏好（美食/自然/人文/摄影等）？",
+    "departure_date": "打算什么时候出发？",
+}
+
+
+def missing_fields(req: dict) -> list[str]:
+    """返回当前缺失的必问字段列表。"""
+    return [f for f in REQUIRED_FIELDS if not req.get(f)]
+
 
 class TravelState(TypedDict, total=False):
     messages: list[dict]            # OpenAI 格式历史（含 tool_calls/tool 消息），无 reducer（节点返回全量）
@@ -29,35 +48,21 @@ class TravelState(TypedDict, total=False):
 def route_after_collect(state: TravelState) -> str:
     """collect 后路由：工具调用自环 / 追问 / 生成。
 
-    优先级：
-    1. 本轮执行了数据工具 → 自环继续收集
-    2. 需求已齐（destination + days + 预算）→ 生成
-    3. 模型明确在追问（问句且需求不齐）→ ask_user
+    注意：路由函数是只读的，不能修改 state。pending_question 由 collect 节点
+    在返回时计算并更新（缺字段时设置），这里只做判断。
     """
     messages = state.get("messages") or []
     if messages and messages[-1].get("role") == "tool":
         return "collect"  # 本轮执行了数据工具，继续收集
 
     if state.get("pending_question"):
-        return "ask_user"
+        return "ask_user"  # collect 已算出缺字段 → 追问
 
     req = state.get("requirements") or {}
-    # 需求核心要素齐备：目的地 + 天数 + 预算（预算缺失时也允许，模型可生成后让用户调）
-    if req.get("destination") and req.get("days"):
-        return "generate"
+    if not missing_fields(req):
+        return "generate"  # 所有必问字段齐备
 
-    # 需求不齐：若模型在追问，进 ask_user；否则兜底追问
-    if messages and messages[-1].get("role") == "assistant":
-        last_text = messages[-1].get("content", "") or ""
-        if any(mark in last_text for mark in ("？", "?", "吗？", "呢？")):
-            state["pending_question"] = last_text[-300:]  # 截断，避免过长
-            return "ask_user"
-
-    # 需求不足且模型未追问 → 兜底追问
-    state["pending_question"] = (
-        state.get("pending_question")
-        or "请问你想去哪里旅行？打算玩几天？大概预算多少？"
-    )
+    # 兜底：理论上前一步已设置 pending_question，这里防御性兜底
     return "ask_user"
 
 

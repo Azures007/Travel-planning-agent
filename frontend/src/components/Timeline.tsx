@@ -39,6 +39,9 @@ export default function Timeline({ itinerary }: TimelineProps) {
             {itinerary.requirements.preferences && (
               <span className="rounded-full bg-white/20 px-3 py-1">偏好：{itinerary.requirements.preferences}</span>
             )}
+            {itinerary.requirements.departure_date && (
+              <span className="rounded-full bg-white/20 px-3 py-1">出发：{itinerary.requirements.departure_date}</span>
+            )}
           </div>
         </div>
 

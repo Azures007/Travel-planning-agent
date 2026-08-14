@@ -24,6 +24,7 @@ export interface TripRequirements {
   travelers: string
   pace: string
   preferences: string
+  departure_date: string
   special_notes: string
 }
 

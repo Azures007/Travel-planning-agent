@@ -28,6 +28,7 @@ class TripRequirements(BaseModel):
     travelers: str = Field(default="", description="出行人员，如 2大人1小孩")
     pace: str = Field(default="", description="节奏偏好：轻松/适中/紧凑")
     preferences: str = Field(default="", description="兴趣偏好，如 美食/自然/人文")
+    departure_date: str = Field(default="", description="出发日期，如 8月15日 或 下周五")
     special_notes: str = Field(default="", description="其他要求，如 带老人/不爬山")
 
 

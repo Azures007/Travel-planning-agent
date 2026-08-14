@@ -66,6 +66,8 @@ async def get_session(session_id: int, db: AsyncSession = Depends(get_db)):
                 "tool_calls": m.tool_calls,
             }
             for m in messages
+            # tool 角色是给模型看的工具结果，不应作为对话历史展示给用户
+            if m.role != "tool"
         ],
         "itinerary": latest_itinerary.plan if latest_itinerary else None,
     }
