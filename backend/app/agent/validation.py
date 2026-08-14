@@ -146,6 +146,18 @@ def validate_itinerary(plan: dict) -> ValidationReport:
                 Issue("budget", "warning", f"各天花费合计({total_cost})与总预算({budget})偏差 {deviation:.0%}")
             )
 
+    # 需求预算 vs 行程总预算：用户设定预算若远高于行程内花费，给出说明性提示
+    req = plan.get("requirements") or {}
+    user_budget = req.get("budget")
+    if user_budget and budget > 0 and user_budget > budget * 1.5:
+        issues.append(
+            Issue(
+                "budget",
+                "warning",
+                f"行程内花费约{budget}元，低于您设定的预算{user_budget}元（差额通常用于住宿和往返大交通）",
+            )
+        )
+
     return ValidationReport(ok=not any(i.level == "error" for i in issues), issues=issues)
 
 

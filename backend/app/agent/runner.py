@@ -104,10 +104,13 @@ class AgentRunner:
             if warnings:
                 yield AgentEvent("validation_report", {"warnings": warnings})
 
-        # 更新会话标题
+        # 更新会话标题 + 行程落库（itinerary 事件已推给前端，必须持久化供回看）
         session = await db.get(Session, session_id)
         if session and itinerary:
             session.title = itinerary.get("title") or session.title
+            from app.db.models import Itinerary
+
+            db.add(Itinerary(session_id=session_id, plan=itinerary))
             await db.commit()
 
         yield AgentEvent("done", {})
