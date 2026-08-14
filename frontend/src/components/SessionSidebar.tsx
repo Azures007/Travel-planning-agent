@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { SessionInfo } from '../lib/types'
 
 interface SessionSidebarProps {
@@ -9,6 +10,14 @@ interface SessionSidebarProps {
 }
 
 export default function SessionSidebar({ sessions, activeId, onNew, onSelect, onDelete }: SessionSidebarProps) {
+  // 待确认删除的会话（null = 未弹出弹窗）
+  const [pendingDelete, setPendingDelete] = useState<SessionInfo | null>(null)
+
+  const confirmDelete = () => {
+    if (pendingDelete) onDelete(pendingDelete.id)
+    setPendingDelete(null)
+  }
+
   return (
     <div className="flex w-60 flex-col border-r border-gray-200 bg-white">
       <div className="p-3">
@@ -42,7 +51,7 @@ export default function SessionSidebar({ sessions, activeId, onNew, onSelect, on
               </div>
             </button>
             <button
-              onClick={() => onDelete(s.id)}
+              onClick={() => setPendingDelete(s)}
               title="删除会话"
               className="mr-2 hidden h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-500 group-hover:flex"
             >
@@ -53,6 +62,32 @@ export default function SessionSidebar({ sessions, activeId, onNew, onSelect, on
           </div>
         ))}
       </div>
+
+      {/* 删除确认弹窗 */}
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-800">删除会话</h3>
+            <p className="mt-2 text-sm text-gray-500">
+              确定要删除「{pendingDelete.title}」吗？该会话的消息和行程将一并删除，且无法恢复。
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => setPendingDelete(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
