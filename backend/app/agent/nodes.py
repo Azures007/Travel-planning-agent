@@ -41,23 +41,32 @@ def _get_llm() -> LLM:
 
 
 def _extract_requirements(messages: list[dict]) -> dict:
-    """从最近的**用户消息**中启发式抽取需求要素（目的地/天数/预算/偏好等）。
+    """从**全部用户消息**中启发式抽取需求要素（目的地/天数/预算/偏好等）。
 
     注意：只扫描 user 消息，避免把模型追问文本里的示例值（如"3天、5天"）
-    误抽成用户需求。
+    误抽成用户需求。扫全量历史，保证补充偏好时不会丢失之前已确认的要素。
     """
     import re
 
     req: dict = {}
     user_texts = [m.get("content", "") or "" for m in messages if m.get("role") == "user"]
-    text = " ".join(user_texts[-3:])
+    text = " ".join(user_texts)
 
-    # 目的地：消息里出现的城市名
-    known_cities = ["大理", "丽江", "成都", "北京", "上海", "杭州", "昆明", "西安", "重庆", "桂林", "三亚", "厦门"]
+    # 目的地：优先匹配常见城市，其次「去X / X玩 / 到X」句式
+    known_cities = [
+        "大理", "丽江", "成都", "北京", "上海", "杭州", "昆明", "西安",
+        "重庆", "桂林", "三亚", "厦门", "苏州", "南京", "长沙", "武汉",
+        "青岛", "大连", "哈尔滨", "广州", "深圳", "香港", "澳门", "台北",
+        "晋江", "泉州", "福州", "厦门", "漳州", "黄山", "张家界",
+    ]
     for city in known_cities:
         if city in text:
             req["destination"] = city
             break
+    if "destination" not in req:
+        m = re.search(r"(?:去|到|在|玩转)\s*([一-龥]{2,6}?)(?:玩|旅游|旅行|度假|住|，|,)", text)
+        if m:
+            req["destination"] = m.group(1)
 
     # 天数：X天 / X日 / X 天
     m = re.search(r"(\d+)\s*[天日]", text)
