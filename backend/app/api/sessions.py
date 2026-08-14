@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Itinerary, Message, Session
@@ -28,6 +28,33 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
         {"id": s.id, "title": s.title, "created_at": s.created_at.isoformat()}
         for s in sessions
     ]
+
+
+@router.delete("/{session_id}")
+async def delete_session(session_id: int, db: AsyncSession = Depends(get_db)):
+    """删除会话：清掉消息/行程 + LangGraph checkpoint 状态。"""
+    session = await db.get(Session, session_id)
+    if session is None:
+        return {"error": "会话不存在"}
+
+    # 删除应用数据（messages/itineraries 由外键级联删除）
+    await db.execute(delete(Message).where(Message.session_id == session_id))
+    await db.execute(delete(Itinerary).where(Itinerary.session_id == session_id))
+    await db.delete(session)
+    await db.commit()
+
+    # 删除 LangGraph checkpoint 状态（thread_id 前缀 session-{id}）
+    from sqlalchemy import text
+
+    thread_prefix = f"session-{session_id}"
+    for table in ("checkpoint_blobs", "checkpoint_writes", "checkpoints"):
+        await db.execute(
+            text(f"DELETE FROM {table} WHERE thread_id = :tid")
+            .bindparams(tid=thread_prefix)
+        )
+    await db.commit()
+
+    return {"deleted": session_id}
 
 
 @router.get("/{session_id}")

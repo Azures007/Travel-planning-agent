@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ChatPanel from './components/ChatPanel'
 import Timeline from './components/Timeline'
 import SessionSidebar from './components/SessionSidebar'
-import { createSession, getSession, listSessions, sendChatMessage } from './lib/api'
+import { createSession, deleteSession, getSession, listSessions, sendChatMessage } from './lib/api'
 import type { ItineraryPlan, SessionInfo } from './lib/types'
 
 export default function App() {
@@ -66,6 +66,28 @@ export default function App() {
   const openSession = useCallback(async (id: number) => {
     setActiveSession(id)
   }, [])
+
+  const handleDelete = useCallback(
+    async (id: number) => {
+      try {
+        await deleteSession(id)
+        await refreshSessions()
+        // 若删的是当前会话，清空右侧
+        setActiveSession((cur) => {
+          if (cur === id) {
+            setMessages([])
+            setItinerary(null)
+            setWaitingFor(null)
+            return null
+          }
+          return cur
+        })
+      } catch (e) {
+        console.error('删除会话失败', e)
+      }
+    },
+    [refreshSessions],
+  )
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -135,6 +157,7 @@ export default function App() {
         activeId={activeSession}
         onNew={newSession}
         onSelect={openSession}
+        onDelete={handleDelete}
       />
       <div className="flex flex-1 min-w-0">
         <ChatPanel

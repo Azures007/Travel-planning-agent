@@ -16,6 +16,10 @@ export async function listSessions(): Promise<SessionInfo[]> {
   return jsonRequest<SessionInfo[]>(`${BASE}/sessions`)
 }
 
+export async function deleteSession(sessionId: number): Promise<void> {
+  await jsonRequest<void>(`${BASE}/sessions/${sessionId}`, { method: 'DELETE' })
+}
+
 export interface SessionDetail {
   id: number
   title: string
