@@ -10,9 +10,13 @@ class Settings(BaseSettings):
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_model: str = "qwen-plus"
 
-    # 真实数据 API（P2，Key 留空自动降级 Mock）
+    # 真实数据 API
     amap_key: str = ""
     qweather_key: str = ""
+    # 和风专属 API Host（2026 年起必须用账号专属域名，在控制台「设置→API Host」查看）
+    # 示例: https://xxxxxxx.qweatherapi.com （无特殊字符）
+    qweather_host: str = "https://devapi.qweather.com"  # 公共域名已废弃，仅作 fallback
+    qweather_geo_host: str = "https://geoapi.qweather.com"
     force_mock_tools: bool = False
 
     # 上下文压缩（方案3）：估算 token 超过阈值时，把旧对话压缩成摘要

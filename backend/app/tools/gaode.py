@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _BASE = {
     "place": "https://restapi.amap.com/v3/place/text",
+    "geocode": "https://restapi.amap.com/v3/geocode/geo",
     "driving": "https://restapi.amap.com/v3/direction/driving",
     "transit": "https://restapi.amap.com/v3/direction/transit/integrated",
     "walking": "https://restapi.amap.com/v3/direction/walking",
@@ -32,6 +33,15 @@ async def _get(url: str, params: dict) -> dict:
         if data.get("status") != "1":
             raise ToolAdapterError(data.get("info") or "高德 API 返回失败")
         return data
+
+
+async def _geocode(address: str) -> str:
+    """把地点名转成 lng,lat 坐标。失败抛 ToolAdapterError。"""
+    data = await _get(_BASE["geocode"], {"key": settings.amap_key, "address": address})
+    geocodes = data.get("geocodes") or []
+    if not geocodes:
+        raise ToolAdapterError(f"地理编码失败: {address}")
+    return geocodes[0].get("location") or ""
 
 
 async def search_poi(destination: str, keyword: str = "") -> list[dict]:
@@ -54,19 +64,27 @@ async def search_poi(destination: str, keyword: str = "") -> list[dict]:
 
 
 async def calc_transit(origin: str, destination: str, mode: str = "driving") -> dict:
-    """估算两地交通耗时。mode: driving/transit/walking。"""
+    """估算两地交通耗时。mode: driving/transit/walking。
+
+    高德 direction 接口需要坐标，先地理编码把地点名转成 lng,lat 再算路径。
+    """
     if mode not in ("driving", "transit", "walking"):
         mode = "driving"
     url = _BASE[mode]
-    params = {"key": settings.amap_key, "origin": "0,0", "destination": "0,0"}
-    # 高德 direction 接口需要坐标，这里先用名称做地理编码兜底失败。
-    # P2 增强：接入 geo/geocode 先转坐标再算路径。
-    try:
-        data = await _get(url, params)
-    except ToolAdapterError:
-        raise
-    except Exception:
-        raise
+
+    origin_loc = await _geocode(origin)
+    dest_loc = await _geocode(destination)
+    params = {
+        "key": settings.amap_key,
+        "origin": origin_loc,
+        "destination": dest_loc,
+    }
+    # transit 模式需要 city 参数
+    if mode == "transit":
+        params["city"] = origin
+        params["cityd"] = destination
+
+    data = await _get(url, params)
 
     route = (data.get("route") or {}).get("paths") or []
     if not route:

@@ -13,8 +13,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_GEO_URL = "https://geoapi.qweather.com/v2/city/lookup"
-_WEATHER_URL = "https://devapi.qweather.com/v7/weather/3d"
+# 和风 2026 起必须用账号专属 Host，域名从配置读取（公共域名已废弃）
+_GEO_URL = lambda: f"{settings.qweather_geo_host}/v2/city/lookup"
+_WEATHER_URL = lambda: f"{settings.qweather_host}/v7/weather/3d"
 
 
 class ToolAdapterError(Exception):
@@ -23,7 +24,7 @@ class ToolAdapterError(Exception):
 
 async def _lookup_location_id(city: str) -> str:
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(_GEO_URL, params={"key": settings.qweather_key, "location": city})
+        resp = await client.get(_GEO_URL(), params={"key": settings.qweather_key, "location": city})
         resp.raise_for_status()
         data = resp.json()
     if data.get("code") != "200" or not data.get("location"):
@@ -33,7 +34,7 @@ async def _lookup_location_id(city: str) -> str:
 
 async def _get_weather(location_id: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(_WEATHER_URL, params={"key": settings.qweather_key, "location": location_id})
+        resp = await client.get(_WEATHER_URL(), params={"key": settings.qweather_key, "location": location_id})
         resp.raise_for_status()
         data = resp.json()
     if data.get("code") != "200":
