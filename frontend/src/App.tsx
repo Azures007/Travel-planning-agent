@@ -42,9 +42,17 @@ export default function App() {
     }
   }, [refreshSessions])
 
-  // 进入页面自动创建一个新会话，输入框立即可用（无需先点新建）
+  // 进入页面：有历史会话就选中最新的一个（可继续对话），没有才新建
   useEffect(() => {
-    void newSession()
+    void (async () => {
+      const list = await listSessions()
+      setSessions(list)
+      if (list.length > 0) {
+        setActiveSession(list[0].id)  // 列表按创建时间倒序，第一个即最新
+      } else {
+        await newSession()
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
