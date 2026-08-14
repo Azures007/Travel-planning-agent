@@ -131,7 +131,12 @@ async def collect(state: TravelState) -> dict:
     # 若存在待回答的问题（从 ask_user 恢复回来），把回答追加进历史
     # 注意：ask_user 会负责追加，这里不重复处理
 
-    result = await llm.turn(messages, tools=TOOL_DEFS, system=SYSTEM_COLLECT)
+    result = await llm.turn(
+        messages,
+        tools=TOOL_DEFS,
+        system=SYSTEM_COLLECT,
+        emit_as="process_message",  # collect 阶段文本折叠为进度状态条
+    )
 
     if result.tool_calls:
         # 追加 assistant 消息（含 tool_calls）

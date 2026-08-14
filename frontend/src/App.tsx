@@ -14,6 +14,8 @@ export default function App() {
   >([])
   const [loading, setLoading] = useState(false)
   const [waitingFor, setWaitingFor] = useState<string | null>(null)
+  // collect 阶段的进度文本（模型查工具时的短句，折叠为状态条）
+  const [processText, setProcessText] = useState('')
   const itineraryRef = useRef<ItineraryPlan | null>(null)
   // 刚自动新建的会话：跳过 getSession 加载，避免覆盖流式更新的消息
   const skipLoadRef = useRef<number | null>(null)
@@ -65,6 +67,7 @@ export default function App() {
         setItinerary(detail.itinerary)
         // 恢复中断等待状态
         setWaitingFor(detail.pending_question || null)
+        setProcessText('')
       } catch (e) {
         console.error('加载会话失败', e)
       }
@@ -125,13 +128,17 @@ export default function App() {
       setMessages((prev) => [...prev, userMsg])
       setLoading(true)
       setWaitingFor(null)
+      setProcessText('')
 
       const assistantBuffer = { text: '' }
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }])
 
       try {
         await sendChatMessage(sid, text, (event) => {
-          if (event.type === 'agent_message') {
+          if (event.type === 'process_message') {
+            // collect 阶段的进度文本，累积为一行状态条
+            setProcessText((prev) => prev + event.data.text)
+          } else if (event.type === 'agent_message') {
             assistantBuffer.text += event.data.text
             setMessages((prev) => {
               const next = [...prev]
@@ -173,6 +180,7 @@ export default function App() {
         })
       } finally {
         setLoading(false)
+        setProcessText('')
         await refreshSessions()
       }
     },
@@ -194,6 +202,7 @@ export default function App() {
           messages={messages}
           loading={loading}
           waitingFor={waitingFor}
+          processText={processText}
           onSend={handleSend}
           disabled={false}
         />

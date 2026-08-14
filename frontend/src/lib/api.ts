@@ -47,6 +47,7 @@ export async function getSession(sessionId: number): Promise<SessionDetail> {
 
 export type SSEEvent =
   | { type: 'agent_message'; data: { text: string } }
+  | { type: 'process_message'; data: { text: string } }
   | { type: 'tool_result'; data: { name: string; result: unknown } }
   | { type: 'itinerary'; data: { plan: ItineraryPlan } }
   | { type: 'question'; data: { question: string; waiting: boolean } }

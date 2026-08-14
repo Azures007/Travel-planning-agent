@@ -124,12 +124,17 @@ class LLM:
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
         system: str | None = None,
+        emit_as: str = "agent_message",
     ) -> LLMResult:
         """执行一轮 LLM 调用（流式），返回完整回复。
 
         文本增量通过 get_stream_writer 透传为 custom 事件；
         工具调用按 index 分槽拼装，流结束后返回完整结构。
         发送前做上下文压缩（超阈值时）。
+
+        emit_as: 文本增量事件类型。collect 阶段传 "process_message"
+        （前端折叠为进度状态条），generate 阶段保持默认 "agent_message"
+        （作为正式回复气泡）。
         """
         writer = get_stream_writer()
 
@@ -164,7 +169,7 @@ class LLM:
                 content_parts.append(delta.content)
                 writer(
                     {
-                        "type": "agent_message",
+                        "type": emit_as,
                         "data": {"text": delta.content},
                     }
                 )

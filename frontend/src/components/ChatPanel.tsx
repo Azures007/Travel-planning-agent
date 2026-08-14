@@ -4,6 +4,7 @@ interface ChatPanelProps {
   messages: { role: 'user' | 'assistant'; content: string }[]
   loading: boolean
   waitingFor?: string | null
+  processText?: string
   onSend: (text: string) => void
   disabled: boolean
 }
@@ -12,6 +13,7 @@ export default function ChatPanel({
   messages,
   loading,
   waitingFor = null,
+  processText = '',
   onSend,
   disabled,
 }: ChatPanelProps) {
@@ -20,7 +22,7 @@ export default function ChatPanel({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading, waitingFor])
+  }, [messages, loading, waitingFor, processText])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,6 +41,14 @@ export default function ChatPanel({
       {isWaiting && (
         <div className="mx-3 mt-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-sm text-amber-700">
           ⏳ 等你回答：{waitingFor}
+        </div>
+      )}
+
+      {/* 收集阶段进度状态条（模型查工具时的短句，折叠展示） */}
+      {loading && processText.trim() && (
+        <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl bg-gray-50 border border-gray-200 px-4 py-2.5 text-xs text-gray-500">
+          <span className="shrink-0 mt-0.5">🔍</span>
+          <span className="leading-relaxed line-clamp-2">{processText.trim()}</span>
         </div>
       )}
 
