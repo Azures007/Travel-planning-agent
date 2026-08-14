@@ -13,9 +13,12 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 和风 2026 起必须用账号专属 Host，域名从配置读取（公共域名已废弃）
-_GEO_URL = lambda: f"{settings.qweather_geo_host}/v2/city/lookup"
-_WEATHER_URL = lambda: f"{settings.qweather_host}/v7/weather/3d"
+# 和风 2026 起必须用账号专属 Host（控制台「设置→API Host」），公共域名已废弃。
+# 专属 Host 示例: https://xxxx.re.qweatherapi.com
+# geo 城市查询路径为 /geo/v2/city/lookup（也在专属 Host 上）
+_HOST = lambda: settings.qweather_host.rstrip("/")
+_GEO_URL = lambda: f"{_HOST()}/geo/v2/city/lookup"
+_WEATHER_URL = lambda: f"{_HOST()}/v7/weather/3d"
 
 
 class ToolAdapterError(Exception):

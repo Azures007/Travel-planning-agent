@@ -101,8 +101,9 @@ START → collect ──(数据工具自环)────────────
 ## 实时数据 API
 
 - `AMAP_KEY`：高德开放平台（POI 搜索 + 地理编码 + 路径规划）——**已接入真实数据**
-- `QWEATHER_KEY`：和风天气（逐日预报）
-- `QWEATHER_HOST`：和风专属 API Host（**2026 年起必须用账号专属域名**，控制台「设置→API Host」查看，公共 `devapi.qweather.com` 已废弃）
+- `QWEATHER_KEY` + `QWEATHER_HOST`：和风天气（逐日预报）——**已接入真实数据**
+  - `QWEATHER_HOST` 是账号专属 API Host（控制台「设置→API Host」查看，形如 `https://xxx.re.qweatherapi.com`）
+  - 2026 年起公共域名（`devapi.qweather.com` 等）已废弃，必须用专属 Host；geo 城市查询路径为 `/geo/v2/city/lookup`
 - 任一 Key 留空或调用失败 → 自动降级 Mock（结果带 `_degraded` 标记）
 - `FORCE_MOCK_TOOLS=true`：开发期整体关闭真实 API
 
