@@ -63,14 +63,20 @@ async def delete_session(session_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     # 删除 LangGraph checkpoint 状态（thread_id 前缀 session-{id}）
+    # 如果 checkpointer 表不存在（未初始化），跳过
     from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
 
     thread_prefix = f"session-{session_id}"
     for table in ("checkpoint_blobs", "checkpoint_writes", "checkpoints"):
-        await db.execute(
-            text(f"DELETE FROM {table} WHERE thread_id = :tid")
-            .bindparams(tid=thread_prefix)
-        )
+        try:
+            await db.execute(
+                text(f"DELETE FROM {table} WHERE thread_id = :tid")
+                .bindparams(tid=thread_prefix)
+            )
+        except OperationalError:
+            # 表不存在，跳过（checkpointer 未初始化）
+            pass
     await db.commit()
 
     return {"deleted": session_id}

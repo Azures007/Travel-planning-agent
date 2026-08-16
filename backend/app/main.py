@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import chat, sessions
+from app.api import chat, sessions, export, edit, compare, geocode_simple as geocode
 from app.config import settings
 from app.db.base import Base
 from app.db.session import engine
@@ -42,6 +42,10 @@ app.add_middleware(
 
 app.include_router(sessions.router)
 app.include_router(chat.router)
+app.include_router(export.router)
+app.include_router(edit.router)
+app.include_router(compare.router)
+app.include_router(geocode.router)
 
 
 @app.get("/api/health")

@@ -55,10 +55,22 @@ export default function ChatPanel({
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
-          <div className="mt-16 text-center text-gray-400">
-            <p className="text-xl mb-2">👋 旅行规划助手</p>
-            <p className="text-sm">告诉我你想去哪里、玩几天、预算多少，我来帮你规划行程。</p>
-            <p className="text-sm mt-1 text-gray-300">例如：「我想去大理玩4天，预算5000，两个人」</p>
+          <div className="mt-16 text-center text-gray-400 space-y-4">
+            <p className="text-2xl mb-3">👋 你好，我是旅行规划助手</p>
+            <div className="max-w-md mx-auto space-y-2 text-sm">
+              <p className="text-gray-500">我可以帮你：</p>
+              <ul className="text-left space-y-1.5 text-gray-400">
+                <li>✈️ 根据你的预算和时间，规划完整行程</li>
+                <li>🎯 推荐目的地热门景点和特色体验</li>
+                <li>🍜 安排每日餐饮、交通和活动时间</li>
+                <li>🌤️ 提供实时天气预报和出行建议</li>
+              </ul>
+            </div>
+            <div className="mt-6 pt-4 border-t border-gray-200 max-w-md mx-auto">
+              <p className="text-xs text-gray-400 mb-2">试试这样说：</p>
+              <p className="text-sm text-gray-500">「我想去大理玩4天，预算5000，两个人」</p>
+              <p className="text-xs text-gray-300 mt-2">告诉我目的地、天数、预算和人数，我会为你量身定制行程～</p>
+            </div>
           </div>
         )}
 

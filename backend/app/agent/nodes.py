@@ -122,15 +122,103 @@ def _extract_requirements(messages: list[dict]) -> dict:
 
 
 async def collect(state: TravelState) -> dict:
-    """需求收集：一次 LLM 回合。有工具调用就地执行回填；无则抽需求。"""
+    """需求收集：一次 LLM 回合。有工具调用就地执行回填；无则抽需求。
+
+    优化逻辑：先检查必填字段，如果有缺失则直接返回追问，不调用 LLM。
+    只有必填字段齐全后，才调用 LLM 决定是否查询工具。
+    """
     writer = get_stream_writer()
     llm = _get_llm()
 
     messages = list(state.get("messages") or [])
+    requirements = state.get("requirements") or {}
 
-    # 若存在待回答的问题（从 ask_user 恢复回来），把回答追加进历史
-    # 注意：ask_user 会负责追加，这里不重复处理
+    # 如果已应用默认值但未确认，检查用户是否确认
+    if state.get("defaults_applied") and not state.get("defaults_confirmed"):
+        last_user_msg = messages[-1]["content"] if messages else ""
+        # 简单匹配确认词
+        confirm_keywords = ["确认", "好的", "可以", "没问题", "行", "ok", "yes", "是的", "对", "开始"]
+        if any(keyword in last_user_msg.lower() for keyword in confirm_keywords):
+            # 用户确认了，标记并继续
+            return {
+                "messages": messages,
+                "requirements": requirements,
+                "defaults_confirmed": True,
+                "defaults_applied": False,  # 清除标记
+                "pending_question": None,
+            }
+        else:
+            # 用户可能在补充信息，重新抽取需求
+            new_requirements = _extract_requirements(messages)
+            requirements = _merge_requirements(requirements, new_requirements)
+            requirements = _apply_smart_defaults(requirements)
+            # 返回状态，让用户继续补充或确认
+            return {
+                "messages": messages,
+                "requirements": requirements,
+                "defaults_confirmed": True,  # 视为已确认
+                "defaults_applied": False,
+                "pending_question": None,
+            }
 
+    # 先从当前消息抽取需求（快速且不消耗 token）
+    new_requirements = _extract_requirements(messages)
+    requirements = _merge_requirements(requirements, new_requirements)
+
+    # 检查必填字段是否齐全
+    from app.agent.graph import FIELD_QUESTIONS, missing_fields
+
+    missing = missing_fields(requirements)
+
+    # 如果有缺失字段，直接返回追问，不调用 LLM 和工具
+    if missing:
+        pending_question = " ".join(FIELD_QUESTIONS[f] for f in missing)
+        return {
+            "messages": messages,
+            "requirements": requirements,
+            "pending_question": pending_question,
+            "is_answering": False,  # 清除标记（如果有）
+        }
+
+    # 必填字段齐全，应用智能默认值
+    original_requirements = requirements.copy()
+    requirements = _apply_smart_defaults(requirements)
+
+    # 检查是否应用了默认值，如果有则生成确认提示
+    applied_defaults = []
+    for key in ["travelers", "pace", "preferences", "departure_date"]:
+        if key not in original_requirements and key in requirements:
+            applied_defaults.append(key)
+
+    # 如果应用了默认值且用户还没确认过，先提示用户
+    if applied_defaults and not state.get("defaults_confirmed"):
+        default_info = []
+        if "travelers" in applied_defaults:
+            default_info.append(f"人数：{requirements['travelers']}")
+        if "pace" in applied_defaults:
+            default_info.append(f"节奏：{requirements['pace']}")
+        if "preferences" in applied_defaults:
+            default_info.append(f"偏好：{requirements['preferences']}")
+        if "departure_date" in applied_defaults:
+            default_info.append(f"出发日期：{requirements['departure_date']}")
+
+        confirmation_message = (
+            f"好的！我已为你自动设置：{' | '.join(default_info)}\n\n"
+            f"如果这些设置符合你的需求，直接回复「确认」或「好的」，我就开始规划行程。\n"
+            f"如果需要调整，请告诉我具体要求（比如「3个人」「节奏要轻松一点」）。"
+        )
+
+        return {
+            "messages": messages,
+            "requirements": requirements,
+            "pending_question": confirmation_message,
+            "is_answering": False,
+            "defaults_applied": True,  # 标记已应用默认值
+        }
+
+    # 用户已确认默认值，或没有应用默认值，继续处理
+
+    # 必填字段齐全，调用 LLM 决定是否需要查询工具
     result = await llm.turn(
         messages,
         tools=TOOL_DEFS,
@@ -188,6 +276,7 @@ async def collect(state: TravelState) -> dict:
     missing = missing_fields(requirements)
     pending_question = " ".join(FIELD_QUESTIONS[f] for f in missing) if missing else None
 
+    # 注意：不追加到 messages，ask_user 会负责追加并发送
     return {
         "messages": messages,
         "requirements": requirements,
@@ -211,16 +300,115 @@ def _merge_requirements(prev: dict | None, new: dict | None) -> dict:
     return merged
 
 
-async def ask_user(state: TravelState) -> dict:
-    """追问用户。全图唯一 interrupt，interrupt 前无副作用。"""
+def _apply_smart_defaults(requirements: dict) -> dict:
+    """应用智能默认值（仅当字段缺失时）。"""
+    defaults = {}
+
+    # 人数：默认 2 人
+    if not requirements.get("travelers"):
+        defaults["travelers"] = "2人"
+
+    # 节奏：默认适中
+    if not requirements.get("pace"):
+        defaults["pace"] = "适中"
+
+    # 偏好：默认综合体验
+    if not requirements.get("preferences"):
+        defaults["preferences"] = "综合体验（美食、景点、休闲）"
+
+    # 出发日期：默认近期（7天后）
+    if not requirements.get("departure_date"):
+        from datetime import datetime, timedelta
+        future_date = datetime.now() + timedelta(days=7)
+        defaults["departure_date"] = future_date.strftime("%Y年%m月%d日")
+
+    return _merge_requirements(requirements, defaults)
+
+
+async def prepare_question(state: TravelState) -> dict:
+    """准备追问：发送事件，设置标记，不 interrupt。
+
+    这个节点在 interrupt 之前执行，确保标记被保存到 checkpoint。
+    """
     question = state.get("pending_question") or "请问你想去哪里旅行？打算玩几天？"
+    writer = get_stream_writer()
 
-    answer = interrupt({"type": "question", "question": question})
+    import logging
+    logging.info(f"[prepare_question] question[:40]={question[:40]}")
 
+    # 发送事件
+    writer({"type": "question", "data": {"question": question}})
+    writer({"type": "agent_message", "data": {"text": question}})
+
+    # 设置标记，LangGraph 会保存 checkpoint
+    return {"last_question_sent": question}
+
+
+async def do_interrupt(state: TravelState) -> dict:
+    """执行 interrupt，等待用户回答。
+
+    只有在 prepare_question 设置了标记后才会调用。
+    """
+    question = state.get("pending_question") or "请问你想去哪里旅行？打算玩几天？"
     messages = list(state.get("messages") or [])
+
+    import logging
+    logging.info(f"[do_interrupt] question[:40]={question[:40]}")
+
+    # interrupt 等待用户回答
+    answer = interrupt({"type": "question", "question": question})
+    logging.info(f"[do_interrupt] Got answer")
+
+    # 追加追问和用户回答到 messages
+    messages.append({"role": "assistant", "content": question})
     messages.append({"role": "user", "content": answer})
 
-    return {"messages": messages, "pending_question": None}
+    return {
+        "messages": messages,
+        "pending_question": None,
+        "is_answering": True,
+        "last_question_sent": None,  # 清除标记
+    }
+
+
+async def ask_user(state: TravelState) -> dict:
+    """追问用户。全图唯一 interrupt。
+
+    用 last_question_sent 标记避免 interrupt 恢复时重复发送事件。
+    """
+    question = state.get("pending_question") or "请问你想去哪里旅行？打算玩几天？"
+    messages = list(state.get("messages") or [])
+    writer = get_stream_writer()
+
+    # 检查是否已经发送过这个追问（interrupt 恢复时会重新执行）
+    last_sent = state.get("last_question_sent")
+    already_sent = (last_sent == question)
+
+    import logging
+    logging.info(f"[ask_user] question[:40]={question[:40]}, last_sent[:40]={last_sent[:40] if last_sent else None}, already_sent={already_sent}")
+
+    if not already_sent:
+        # 首次发送：发送事件并设置标记
+        logging.info(f"[ask_user] Sending events")
+        writer({"type": "question", "data": {"question": question}})
+        writer({"type": "agent_message", "data": {"text": question}})
+
+    # interrupt 等待用户回答（首次会暂停，恢复后返回答案）
+    answer = interrupt({"type": "question", "question": question})
+    logging.info(f"[ask_user] Got answer")
+
+    # interrupt 恢复后，追加追问和用户回答到 messages
+    # 注意：如果 already_sent=True，说明追问已经在 messages 里，不重复追加
+    if not already_sent:
+        messages.append({"role": "assistant", "content": question})
+    messages.append({"role": "user", "content": answer})
+
+    return {
+        "messages": messages,
+        "pending_question": None,
+        "is_answering": True,
+        "last_question_sent": question,  # 设置标记
+    }
 
 
 async def generate(state: TravelState) -> dict:
@@ -274,9 +462,10 @@ async def generate(state: TravelState) -> dict:
 
 
 async def validate(state: TravelState) -> dict:
-    """合理性校验：确定式修复 + 业务校验 + 地理相邻检查。"""
+    """合理性校验：确定式修复 + 业务校验 + 地理相邻检查 + 预算验证。"""
     writer = get_stream_writer()
     plan = state.get("itinerary") or {}
+    requirements = state.get("requirements") or {}
 
     # 先做确定式自动修复
     report = validate_itinerary(plan)
@@ -289,6 +478,35 @@ async def validate(state: TravelState) -> dict:
     geo_issues = await check_geography(plan)
     if geo_issues:
         report.issues.extend(geo_issues)
+
+    # 预算验证：检查 total_cost 是否接近用户预算
+    budget_raw = requirements.get('budget', '')
+    if budget_raw:
+        import re
+        # 确保转为字符串（可能是数字或字符串）
+        budget_str = str(budget_raw)
+        match = re.search(r'(\d+)', budget_str)
+        if match:
+            budget_num = int(match.group(1))
+            total_cost = plan.get('total_cost', 0)
+
+            if total_cost > 0:
+                usage_rate = total_cost / budget_num
+
+                if usage_rate < 0.7:
+                    from app.validation.schemas import Issue
+                    report.issues.append(Issue(
+                        level='error',
+                        message=f'预算利用率过低（{usage_rate:.0%}），total_cost={total_cost}元 远低于预算{budget_num}元。请提升行程品质（更好的餐厅、增加特色体验活动）或调整活动安排，使总花费达到预算的80%-100%。'
+                    ))
+                    report.ok = False
+                elif usage_rate > 1.1:
+                    from app.validation.schemas import Issue
+                    report.issues.append(Issue(
+                        level='error',
+                        message=f'超出预算（{usage_rate:.0%}），total_cost={total_cost}元 超过预算{budget_num}元。请调整活动或降低单项花费，使总花费控制在预算的110%以内。'
+                    ))
+                    report.ok = False
 
     retries = state.get("retries") or 0
     ok = report.ok

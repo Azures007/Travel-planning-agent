@@ -6,12 +6,24 @@ venv/
 .env
 *.egg-info/
 
+# 数据库文件
+*.db
+*.db-shm
+*.db-wal
+
 # Node
 node_modules/
 dist/
 .vite/
 
+# TypeScript
+*.tsbuildinfo
+
 # 编辑器
 .idea/
 .vscode/
 *.swp
+
+# 临时文件
+*.bak
+test_*.json

@@ -1,59 +1,67 @@
-"""Checkpointer 单例：AsyncPostgresSaver 懒初始化。
+"""Checkpointer 单例：根据数据库类型选择合适的 Saver。
 
-Windows 上 psycopg 3 的 async 模式不兼容默认的 ProactorEventLoop，
-必须在进入 asyncio 前设置 WindowsSelectorEventLoopPolicy（见 module 底部）。
+支持 SQLite (AsyncSqliteSaver) 和 PostgreSQL (AsyncPostgresSaver)。
 """
 
 import asyncio
-import sys
-
-# psycopg 3 async 模式需要 selector 事件循环（Windows）
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 import logging
-
-from psycopg.rows import dict_row
-from psycopg_pool import AsyncConnectionPool
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_pool: AsyncConnectionPool | None = None
-_checkpointer = None  # AsyncPostgresSaver 实例（延迟导入避免循环依赖）
+_checkpointer = None
 _initialized = False
 _setup_lock = asyncio.Lock()
 
 
-def psycopg_conninfo() -> str:
-    """把 SQLAlchemy 的 asyncpg 连接串转成 psycopg 需要的 postgresql:// 格式。"""
-    return settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-
-
 async def get_checkpointer():
-    """返回 AsyncPostgresSaver 单例（首次调用时建表）。"""
-    global _pool, _checkpointer, _initialized
+    """返回合适的 checkpointer 单例（首次调用时建表）。"""
+    global _checkpointer, _initialized
 
     if _checkpointer is not None:
         return _checkpointer
 
     async with _setup_lock:
-        if _checkpointer is not None:  # 双检锁，防并发重复初始化
+        if _checkpointer is not None:  # 双检锁
             return _checkpointer
 
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        db_url = settings.database_url
 
-        conninfo = psycopg_conninfo()
-        _pool = AsyncConnectionPool(
-            conninfo,
-            kwargs={"row_factory": dict_row, "autocommit": True},
-            open=False,
-        )
-        await _pool.open()
+        # 根据数据库类型选择 checkpointer
+        if db_url.startswith("sqlite"):
+            # SQLite: 使用 AsyncSqliteSaver（持久化）
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+            import aiosqlite
 
-        _checkpointer = AsyncPostgresSaver(_pool)
-        await _checkpointer.setup()
+            # 提取数据库文件路径
+            db_path = db_url.replace("sqlite+aiosqlite:///", "").replace("./", "")
+
+            conn = await aiosqlite.connect(db_path)
+            _checkpointer = AsyncSqliteSaver(conn)
+            await _checkpointer.setup()
+            logger.info("AsyncSqliteSaver checkpointer 初始化完成（数据库: %s）", db_path)
+
+        else:
+            # PostgreSQL: 使用 AsyncPostgresSaver
+            import sys
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+            from psycopg.rows import dict_row
+            from psycopg_pool import AsyncConnectionPool
+
+            conninfo = db_url.replace("postgresql+asyncpg://", "postgresql://")
+            pool = AsyncConnectionPool(
+                conninfo,
+                kwargs={"row_factory": dict_row, "autocommit": True},
+                open=False,
+            )
+            await pool.open()
+            _checkpointer = AsyncPostgresSaver(pool)
+            await _checkpointer.setup()
+            logger.info("AsyncPostgresSaver checkpointer 初始化完成")
+
         _initialized = True
-        logger.info("AsyncPostgresSaver checkpointer 初始化完成")
         return _checkpointer

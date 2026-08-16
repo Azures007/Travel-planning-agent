@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行程地图</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'PingFang SC', sans-serif; }
+        #map { width: 100%; height: 100vh; }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 9999;
+            text-align: center;
+        }
+        #loading .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #10b981;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div style="margin-top: 15px;">加载行程数据...</div>
+    </div>
+
+    <script>
+        // 从 URL 参数获取 session_id
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('session_id');
+
+        if (!sessionId) {
+            document.getElementById('loading').innerHTML = '<div>❌ 缺少会话 ID</div>';
+        } else {
+            loadItinerary(sessionId);
+        }
+
+        async function loadItinerary(sessionId) {
+            try {
+                const response = await fetch(`http://localhost:8000/api/sessions/${sessionId}`);
+                if (!response.ok) {
+                    throw new Error('获取行程失败');
+                }
+
+                const data = await response.json();
+                if (!data.itinerary || !data.itinerary.days) {
+                    document.getElementById('loading').innerHTML = '<div>⚠️ 该会话没有行程数据</div>';
+                    return;
+                }
+
+                initMap(data.itinerary);
+            } catch (error) {
+                console.error('加载行程失败:', error);
+                document.getElementById('loading').innerHTML = '<div>❌ 加载行程失败</div>';
+            }
+        }
+
+        async function initMap(data) {
+            const map = L.map('map').setView([24.4798, 118.0894], 12);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            // 收集所有地点
+            const allLocations = [];
+            data.days.forEach(day => {
+                day.activities.forEach(activity => {
+                    allLocations.push({
+                        dayIndex: day.day_index,
+                        location: activity.location,
+                        time: activity.time,
+                        description: activity.description,
+                        cost: activity.cost
+                    });
+                });
+            });
+
+            if (allLocations.length === 0) {
+                document.getElementById('loading').innerHTML = '<div>⚠️ 行程中没有地点信息</div>';
+                return;
+            }
+
+            // 更新加载提示
+            document.getElementById('loading').innerHTML = `
+                <div class="spinner"></div>
+                <div style="margin-top: 15px;">正在批量解析 ${allLocations.length} 个地点...</div>
+                <div style="font-size: 12px; color: #10b981; margin-top: 5px;">⚡ 使用缓存加速</div>
+            `;
+
+            // 批量请求地理编码
+            try {
+                const response = await fetch('http://localhost:8000/api/geocode/batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        locations: allLocations.map(loc => loc.location),
+                        destination: data.requirements.destination
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('批量地理编码失败');
+                }
+
+                const geocodeResults = await response.json();
+                console.log('地理编码结果:', geocodeResults);
+
+                // 创建标记
+                const markers = [];
+                const dayColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+                let approximateCount = 0;
+                geocodeResults.forEach((result, index) => {
+                    if (result.lat && result.lon) {
+                        const activity = allLocations[index];
+                        const dayColor = dayColors[(activity.dayIndex - 1) % dayColors.length];
+                        const isApprox = result.approximate;
+                        if (isApprox) approximateCount++;
+
+                        const marker = L.circleMarker([result.lat, result.lon], {
+                            radius: 10,
+                            fillColor: dayColor,
+                            color: isApprox ? '#f59e0b' : '#fff',  // 近似位置用橙色边框
+                            weight: isApprox ? 3 : 2,
+                            opacity: 1,
+                            fillOpacity: isApprox ? 0.5 : 0.8,  // 近似位置半透明
+                            dashArray: isApprox ? '4, 4' : undefined  // 近似位置用虚线
+                        }).addTo(map);
+
+                        // 添加天数标签
+                        const label = L.marker([result.lat, result.lon], {
+                            icon: L.divIcon({
+                                className: 'day-label',
+                                html: `<div style="background: ${dayColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">Day ${activity.dayIndex}${isApprox ? '?' : ''}</div>`,
+                                iconSize: [50, 20],
+                                iconAnchor: [25, 10]
+                            })
+                        }).addTo(map);
+
+                        // 弹窗内容（marker 和 label 共享）
+                        const popupContent = `
+                            <div style="min-width: 200px;">
+                                <div style="font-weight: bold; color: ${dayColor}; margin-bottom: 8px; font-size: 14px;">
+                                    📍 Day ${activity.dayIndex || '?'}
+                                </div>
+                                <div style="margin-bottom: 4px;">
+                                    <strong>地点：</strong>${activity.location || '未知地点'}
+                                </div>
+                                <div style="margin-bottom: 4px;">
+                                    <strong>时间：</strong>${activity.time || '待定'}
+                                </div>
+                                ${activity.description ? `<div style="margin-bottom: 4px;">
+                                    <strong>活动：</strong>${activity.description}
+                                </div>` : ''}
+                                <div style="color: #10b981; font-weight: bold;">
+                                    💰 ¥${activity.cost || 0}
+                                </div>
+                                ${isApprox ? '<div style="margin-top: 8px; font-size: 11px; color: #f59e0b;">⚠️ 大致位置（未能精确定位）</div>' : ''}
+                            </div>
+                        `;
+
+                        // 绑定弹出窗口（marker 和 label 都绑定，点击任意一个都能显示）
+                        marker.bindPopup(popupContent);
+                        label.bindPopup(popupContent);
+
+                        // 鼠标悬停时高亮
+                        marker.on('mouseover', function() {
+                            this.setStyle({ weight: 4, fillOpacity: 1 });
+                        });
+                        marker.on('mouseout', function() {
+                            this.setStyle({
+                                weight: isApprox ? 3 : 2,
+                                fillOpacity: isApprox ? 0.5 : 0.8
+                            });
+                        });
+
+                        markers.push({ lat: result.lat, lon: result.lon });
+                    }
+                });
+
+                // 隐藏加载提示
+                document.getElementById('loading').style.display = 'none';
+
+                if (markers.length > 0) {
+                    // 调整视野以显示所有标记
+                    const bounds = L.latLngBounds(markers.map(m => [m.lat, m.lon]));
+                    map.fitBounds(bounds, { padding: [50, 50] });
+
+                    // 绘制路线
+                    const latlngs = markers.map(m => [m.lat, m.lon]);
+                    const polyline = L.polyline(latlngs, {
+                        color: '#10b981',
+                        weight: 3,
+                        opacity: 0.7,
+                        dashArray: '10, 10'
+                    }).addTo(map);
+
+                    const cachedCount = geocodeResults.filter(r => r.cached).length;
+                    console.log(`✓ 成功标注 ${markers.length}/${allLocations.length} 个地点 (${cachedCount} 个来自缓存)`);
+                } else {
+                    document.getElementById('loading').innerHTML = '<div>⚠️ 未能找到任何地点坐标</div>';
+                    document.getElementById('loading').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('地理编码失败:', error);
+                document.getElementById('loading').innerHTML = '<div>❌ 地理编码失败，请重试</div>';
+            }
+        }
+    </script>
+</body>
+</html>
