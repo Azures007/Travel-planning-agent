@@ -208,17 +208,48 @@
                     const bounds = L.latLngBounds(markers.map(m => [m.lat, m.lon]));
                     map.fitBounds(bounds, { padding: [50, 50] });
 
-                    // 绘制路线
-                    const latlngs = markers.map(m => [m.lat, m.lon]);
-                    const polyline = L.polyline(latlngs, {
-                        color: '#10b981',
-                        weight: 3,
-                        opacity: 0.7,
-                        dashArray: '10, 10'
-                    }).addTo(map);
+                    // 按天分组绘制路线（每天用对应颜色，更直观）
+                    const dayGroups = {};
+                    geocodeResults.forEach((result, index) => {
+                        if (result.lat && result.lon) {
+                            const activity = allLocations[index];
+                            const day = activity.dayIndex;
+                            if (!dayGroups[day]) dayGroups[day] = [];
+                            dayGroups[day].push([result.lat, result.lon]);
+                        }
+                    });
+
+                    Object.keys(dayGroups).forEach(day => {
+                        const points = dayGroups[day];
+                        if (points.length >= 2) {
+                            const color = dayColors[(parseInt(day) - 1) % dayColors.length];
+                            L.polyline(points, {
+                                color: color,
+                                weight: 3,
+                                opacity: 0.7,
+                                dashArray: '8, 8'
+                            }).addTo(map);
+                        }
+                    });
+
+                    // 添加图例
+                    const legend = L.control({ position: 'bottomright' });
+                    legend.onAdd = function() {
+                        const div = L.DomUtil.create('div', 'map-legend');
+                        div.style.cssText = 'background:white;padding:10px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:12px;line-height:1.8;';
+                        let html = '<div style="font-weight:bold;margin-bottom:6px;">行程路线</div>';
+                        Object.keys(dayGroups).sort((a,b) => a-b).forEach(day => {
+                            const color = dayColors[(parseInt(day) - 1) % dayColors.length];
+                            html += `<div><span style="display:inline-block;width:14px;height:14px;background:${color};border-radius:3px;margin-right:6px;vertical-align:middle;"></span>第 ${day} 天</div>`;
+                        });
+                        div.innerHTML = html;
+                        return div;
+                    };
+                    legend.addTo(map);
 
                     const cachedCount = geocodeResults.filter(r => r.cached).length;
-                    console.log(`✓ 成功标注 ${markers.length}/${allLocations.length} 个地点 (${cachedCount} 个来自缓存)`);
+                    const approxCount = geocodeResults.filter(r => r.approximate).length;
+                    console.log(`✓ 成功标注 ${markers.length}/${allLocations.length} 个地点 (${cachedCount} 个来自缓存, ${approxCount} 个近似位置)`);
                 } else {
                     document.getElementById('loading').innerHTML = '<div>⚠️ 未能找到任何地点坐标</div>';
                     document.getElementById('loading').style.display = 'block';

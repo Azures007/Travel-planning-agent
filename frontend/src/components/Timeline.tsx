@@ -57,6 +57,12 @@ export default function Timeline({ itinerary, sessionId, onItineraryUpdate, onSe
     setShowExportMenu(false)
   }
 
+  const handleExportMarkdown = () => {
+    if (!sessionId) return
+    window.open(`http://localhost:8000/api/export/${sessionId}/markdown`, '_blank')
+    setShowExportMenu(false)
+  }
+
   const startEdit = (dayIdx: number, actIdx: number, activity: any) => {
     setEditingActivity({ dayIdx, actIdx })
     setEditForm({ ...activity })
@@ -198,6 +204,12 @@ export default function Timeline({ itinerary, sessionId, onItineraryUpdate, onSe
                         🖨️ 打印/保存PDF
                       </button>
                       <button
+                        onClick={handleExportMarkdown}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        📝 导出 Markdown
+                      </button>
+                      <button
                         onClick={handleShare}
                         className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                       >
@@ -227,6 +239,52 @@ export default function Timeline({ itinerary, sessionId, onItineraryUpdate, onSe
             )}
           </div>
         </div>
+
+        {/* 预算实时跟踪 */}
+        {(() => {
+          const budget = parseFloat(String(itinerary.requirements.budget || 0))
+          const spent = itinerary.total_budget || 0
+          if (!budget) return null
+
+          const ratio = spent / budget
+          const percent = Math.min(ratio * 100, 100)
+          // 根据使用率选择颜色：正常绿色，接近超支橙色，超支红色
+          let barColor = 'bg-emerald-500'
+          let statusText = '预算充足'
+          let statusColor = 'text-emerald-600'
+          if (ratio > 1) {
+            barColor = 'bg-red-500'
+            statusText = `超支 ¥${(spent - budget).toFixed(0)}`
+            statusColor = 'text-red-600'
+          } else if (ratio > 0.9) {
+            barColor = 'bg-orange-500'
+            statusText = '接近预算上限'
+            statusColor = 'text-orange-600'
+          } else if (ratio < 0.5) {
+            barColor = 'bg-blue-500'
+            statusText = '预算宽松'
+            statusColor = 'text-blue-600'
+          }
+
+          return (
+            <div className="mb-6 rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">💰 预算使用情况</span>
+                <span className={`text-sm font-medium ${statusColor}`}>{statusText}</span>
+              </div>
+              <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className={`h-full ${barColor} transition-all duration-500`}
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <div className="mt-2 flex justify-between text-xs text-gray-500">
+                <span>已规划 ¥{spent}</span>
+                <span>预算 ¥{budget}（{(ratio * 100).toFixed(0)}%）</span>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* 逐日活动 */}
         <div className="relative space-y-6">

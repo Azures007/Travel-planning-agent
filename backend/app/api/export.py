@@ -25,7 +25,7 @@ async def export_html(session_id: int, db: AsyncSession = Depends(get_db)):
     if not itinerary_obj:
         raise HTTPException(status_code=404, detail="未生成行程")
 
-    itinerary = itinerary_obj.data
+    itinerary = itinerary_obj.plan
 
     # 生成 HTML
     html = generate_html(session.title, itinerary)
@@ -44,11 +44,105 @@ async def get_share_link(session_id: int, db: AsyncSession = Depends(get_db)):
     return {"url": share_url, "title": session.title}
 
 
+@router.get("/{session_id}/markdown")
+async def export_markdown(session_id: int, db: AsyncSession = Depends(get_db)):
+    """导出为 Markdown 格式（可在任何编辑器查看/转换）。"""
+    session = await db.get(Session, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    result = await db.execute(
+        select(Itinerary).where(Itinerary.session_id == session_id)
+    )
+    itinerary_obj = result.scalar_one_or_none()
+    if not itinerary_obj:
+        raise HTTPException(status_code=404, detail="未生成行程")
+
+    md = generate_markdown(session.title, itinerary_obj.plan)
+    return Response(
+        content=md,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="itinerary_{session_id}.md"'
+        },
+    )
+
+
+def generate_markdown(title: str, itinerary: dict) -> str:
+    """生成 Markdown 格式的行程。"""
+    req = itinerary.get("requirements", {})
+    days = itinerary.get("days", [])
+    total = itinerary.get("total_budget") or itinerary.get("total_cost", 0)
+
+    lines = [f"# {title}", ""]
+
+    # 需求概览
+    info = []
+    if req.get("destination"):
+        info.append(f"**目的地**：{req['destination']}")
+    if req.get("days"):
+        info.append(f"**天数**：{req['days']} 天")
+    if req.get("budget"):
+        info.append(f"**预算**：¥{req['budget']}")
+    if req.get("travelers"):
+        info.append(f"**人数**：{req['travelers']}")
+    if req.get("pace"):
+        info.append(f"**节奏**：{req['pace']}")
+    if info:
+        lines.append(" · ".join(info))
+        lines.append("")
+
+    lines.append(f"**预估总花费**：¥{total}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # 逐日行程
+    for day in days:
+        day_num = day.get("day", "")
+        day_date = day.get("date", "")
+        header = f"## 第 {day_num} 天"
+        if day_date:
+            header += f"（{day_date}）"
+        lines.append(header)
+        lines.append("")
+
+        if day.get("summary"):
+            lines.append(f"> {day['summary']}")
+            lines.append("")
+
+        for act in day.get("activities", []):
+            time_str = act.get("time", "")
+            act_title = act.get("title", "")
+            location = act.get("location", "")
+            detail = act.get("detail", "")
+            cost = act.get("cost", 0)
+            transport = act.get("transport", "")
+
+            line = f"- **{time_str}** {act_title}"
+            if location:
+                line += f" @ {location}"
+            if cost:
+                line += f" （¥{cost}）"
+            lines.append(line)
+            if detail:
+                lines.append(f"  - {detail}")
+            if transport:
+                lines.append(f"  - 🚗 {transport}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append("*由旅行规划助手生成*")
+
+    return "\n".join(lines)
+
+
 def generate_html(title: str, itinerary: dict) -> str:
     """生成美化的 HTML（带样式、适合打印）。"""
     requirements = itinerary.get("requirements", {})
     days = itinerary.get("days", [])
-    total_cost = itinerary.get("total_cost", 0)
+    total_cost = itinerary.get("total_budget") or itinerary.get("total_cost", 0)
 
     # 构建需求标签
     tags_html = ""
